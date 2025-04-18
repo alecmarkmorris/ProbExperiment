@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Font Typing Speed Experiment</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .arial { font-family: Arial, sans-serif; font-size: 16px; }
+    .times-new-roman { font-family: 'Times New Roman', serif; font-size: 16px; }
+    .word { display: inline-block; margin-right: 8px; }
+    .current { border-bottom: 2px solid #3b82f6; }
+    .correct { color: #000; }
+    .incorrect { color: #ef4444; }
+    .cursor { 
+      display: inline-block;
+      width: 2px;
+      height: 1.2em;
+      background: #3b82f6;
+      animation: blink 0.8s infinite;
+      vertical-align: middle;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+  </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+  <div class="bg-white p-8 rounded-lg shadow-lg max-w-2xl w-full">
+    <div id="start-screen" class="text-center">
+      <h1 class="text-2xl font-bold mb-4">Font Typing Speed Experiment</h1>
+      <p class="mb-4">Enter a participant ID to begin.</p>
+      <input
+        type="text"
+        id="participant-id"
+        placeholder="Participant ID (e.g., P1)"
+        class="border p-2 mb-4 w-full rounded"
+      >
+      <p id="error-start" class="text-red-500 mb-4 hidden"></p>
+      <button
+        onclick="startExperiment()"
+        class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+      >
+        Start Experiment
+      </button>
+    </div>
+
+    <div id="typing-screen" class="hidden">
+      <h1 class="text-xl font-bold mb-4">Type the Passage (<span id="current-font"></span>)</h1>
+      <div id="passage" class="mb-4 leading-7"></div>
+      <input
+        id="input-text"
+        type="text"
+        placeholder="Start typing here..."
+        class="border p-2 w-full mb-4 rounded"
+        autocomplete="off"
+      >
+      <p id="error-typing" class="text-red-500 mb-4 hidden"></p>
+      <button
+        onclick="submitTyping()"
+        class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+      >
+        Submit
+      </button>
+    </div>
+
+    <div id="done-screen" class="text-center hidden">
+      <h1 class="text-xl font-bold mb-4">Experiment Complete</h1>
+      <p class="mb-4">Thank you for participating! Below are the recorded times.</p>
+      <table class="w-full mb-4 border-collapse">
+        <thead>
+          <tr class="bg-gray-200">
+            <th class="border p-2">Participant ID</th>
+            <th class="border p-2">Arial Time (s)</th>
+            <th class="border p-2">Times New Roman Time (s)</th>
+            <th class="border p-2">Difference (Arial - TNR)</th>
+          </tr>
+        </thead>
+        <tbody id="results-table"></tbody>
+      </table>
+      <button
+        onclick="downloadCSV()"
+        class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 mr-2"
+      >
+        Download Data (CSV)
+      </button>
+      <button
+        onclick="reset()"
+        class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+      >
+        New Participant
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const passage = "Typography is the art and technique of arranging type to make written language legible, readable, and appealing. The arrangement of type involves selecting typefaces, point sizes, line lengths, line-spacing, and letter-spacing, and adjusting the space between pairs of letters. The term typography is also applied to the style, arrangement, and appearance of the letters, numbers, and symbols created by the process. Type design is a closely related craft, sometimes considered part of typography; most typographers do not design typefaces, and some type designers do not consider themselves typographers. Typography also includes the creation of glyphs.";
+    const words = passage.split(' ');
+
+    let participantId = '';
+    let fontOrder = [];
+    let currentFont = '';
+    let startTime = null;
+    let results = [];
+    let currentWordIndex = 0;
+    let typedWords = [];
+
+    function startExperiment() {
+      participantId = document.getElementById('participant-id').value.trim();
+      const errorStart = document.getElementById('error-start');
+      if (!participantId) {
+        errorStart.textContent = 'Please enter a participant ID.';
+        errorStart.classList.remove('hidden');
+        return;
+      }
+      errorStart.classList.add('hidden');
+      fontOrder = Math.random() < 0.5 ? ['Arial', 'Times New Roman'] : ['Times New Roman', 'Arial'];
+      currentFont = fontOrder[0];
+      results = results.filter(r => r.participantId !== participantId);
+      results.push({ participantId, arial: 0, timesnewroman: 0 });
+      currentWordIndex = 0;
+      typedWords = [];
+      showTypingScreen();
+    }
+
+    function showTypingScreen() {
+      document.getElementById('start-screen').classList.add('hidden');
+      document.getElementById('typing-screen').classList.remove('hidden');
+      document.getElementById('current-font').textContent = currentFont;
+      const passageEl = document.getElementById('passage');
+      passageEl.className = currentFont === 'Arial' ? 'arial' : 'times-new-roman';
+      passageEl.innerHTML = words.map((word, i) => 
+        `<span class="word ${i === 0 ? 'current' : ''}">${word}</span>`
+      ).join('') + '<span class="cursor"></span>';
+      const input = document.getElementById('input-text');
+      input.value = '';
+      input.focus();
+      startTime = null;
+    }
+
+    function updatePassage() {
+      const input = document.getElementById('input-text').value.trim();
+      typedWords = input.split(' ').filter(w => w.length > 0);
+      const passageEl = document.getElementById('passage');
+      let html = '';
+      words.forEach((word, i) => {
+        let classes = ['word'];
+        if (i === typedWords.length) {
+          classes.push('current');
+        }
+        let wordContent = word.split('').map((char, j) => {
+          if (i < typedWords.length) {
+            const typedWord = typedWords[i] || '';
+            const typedChar = typedWord[j];
+            if (typedChar === undefined) {
+              return `<span>${char}</span>`;
+            }
+            return `<span class="${typedChar === char ? 'correct' : 'incorrect'}">${char}</span>`;
+          }
+          return `<span>${char}</span>`;
+        }).join('');
+        html += `<span class="${classes.join(' ')}">${wordContent}</span>`;
+      });
+      passageEl.innerHTML = html + '<span class="cursor"></span>';
+    }
+
+    function submitTyping() {
+      const input = document.getElementById('input-text').value.trim();
+      const errorTyping = document.getElementById('error-typing');
+      if (typedWords.length < 90) {
+        errorTyping.textContent = 'Please type the entire passage (at least 90 words).';
+        errorTyping.classList.remove('hidden');
+        return;
+      }
+      if (!startTime) {
+        errorTyping.textContent = 'No typing detected. Please type the passage.';
+        errorTyping.classList.remove('hidden');
+        return;
+      }
+      errorTyping.classList.add('hidden');
+      const endTime = Date.now();
+      const timeTaken = (endTime - startTime) / 1000;
+      console.log(`Recording ${currentFont} time: ${timeTaken}s for ${participantId}`);
+      const result = results.find(r => r.participantId === participantId);
+      if (currentFont === 'Arial') {
+        result.arial = timeTaken;
+      } else {
+        result.timesnewroman = timeTaken;
+      }
+      console.log('Current results:', results);
+      if (currentFont === fontOrder[0]) {
+        currentFont = fontOrder[1];
+        currentWordIndex = 0;
+        typedWords = [];
+        showTypingScreen();
+      } else {
+        document.getElementById('typing-screen').classList.add('hidden');
+        document.getElementById('done-screen').classList.remove('hidden');
+        displayResults();
+      }
+    }
+
+    function displayResults() {
+      const tbody = document.getElementById('results-table');
+      tbody.innerHTML = '';
+      results.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="border p-2">${r.participantId}</td>
+          <td class="border p-2">${r.arial.toFixed(2)}</td>
+          <td class="border p-2">${r.timesnewroman.toFixed(2)}</td>
+          <td class="border p-2">${(r.arial - r.timesnewroman).toFixed(2)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function downloadCSV() {
+      const headers = ['Participant ID', 'Arial Time (s)', 'Times New Roman Time (s)', 'Difference (Arial - TNR)'];
+      const rows = results.map(r => [
+        r.participantId,
+        r.arial.toFixed(2),
+        r.timesnewroman.toFixed(2),
+        (r.arial - r.timesnewroman).toFixed(2)
+      ]);
+      const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'typing_experiment_data.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function reset() {
+      participantId = '';
+      fontOrder = [];
+      currentFont = '';
+      startTime = null;
+      currentWordIndex = 0;
+      typedWords = [];
+      document.getElementById('participant-id').value = '';
+      document.getElementById('input-text').value = '';
+      document.getElementById('done-screen').classList.add('hidden');
+      document.getElementById('start-screen').classList.remove('hidden');
+    }
+
+    document.getElementById('input-text').addEventListener('input', () => {
+      if (!startTime) {
+        startTime = Date.now();
+        console.log('Timer started for', currentFont);
+      }
+      updatePassage();
+    });
+
+    document.getElementById('input-text').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && typedWords.length >= 90) {
+        e.preventDefault();
+        submitTyping();
+      }
+    });
+  </script>
+</body>
+</html>
